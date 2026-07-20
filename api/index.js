@@ -760,19 +760,15 @@ app.delete("/favorites/:recipeId", connectDb, async (req, res) => {
         const email = req.query.userEmail;
 
 
-        // Remove favorite document
         const deleteResult = await favoriteCollection.deleteOne({
-            recipeId: recipeId,
+            recipeId,
             userEmail: email
         });
 
 
-
         if (deleteResult.deletedCount > 0) {
 
-
-            // decrease recipe favorite count
-            await recipesCollection.updateOne(
+            await recipeCollection.updateOne(
                 {
                     _id: new ObjectId(recipeId)
                 },
@@ -783,27 +779,27 @@ app.delete("/favorites/:recipeId", connectDb, async (req, res) => {
                 }
             );
 
-
         }
 
 
+        res.send({
+            success: true,
+            deleted: deleteResult.deletedCount
+        });
 
-        res.send(deleteResult);
 
+    } catch (error) {
 
-    }
-    catch (error) {
-
-        console.log(error);
+        console.log("Remove favorite error:", error);
 
         res.status(500).send({
-            message: "Failed to remove favorite"
+            message: "Failed to remove favorite",
+            error: error.message
         });
 
     }
 
 });
-
 app.get("/favorites/:recipeId/:email", connectDb, async (req, res) => {
 
     try {
@@ -833,48 +829,56 @@ app.get("/favorites/:recipeId/:email", connectDb, async (req, res) => {
 
 app.get("/favorites/:email", connectDb, async (req, res) => {
 
+    try {
 
-    const email = req.params.email;
+        const email = decodeURIComponent(req.params.email);
 
 
-    const favorites = await favoriteCollection.aggregate([
+        const favorites = await favoriteCollection.aggregate([
 
-        {
-            $match: {
-                userEmail: email
-            }
-        },
-
-        {
-            $addFields: {
-                recipeObjectId: {
-                    $toObjectId: "$recipeId"
+            {
+                $match: {
+                    userEmail: email
                 }
+            },
+
+            {
+                $addFields: {
+                    recipeObjectId: {
+                        $toObjectId: "$recipeId"
+                    }
+                }
+            },
+
+            {
+                $lookup: {
+                    from: "recipes",
+                    localField: "recipeObjectId",
+                    foreignField: "_id",
+                    as: "recipe"
+                }
+            },
+
+            {
+                $unwind: "$recipe"
             }
-        },
+
+        ]).toArray();
 
 
-        {
-            $lookup: {
-                from: "recipes",
-                localField: "recipeObjectId",
-                foreignField: "_id",
-                as: "recipe"
-            }
-        },
+        res.send(favorites);
 
 
-        {
-            $unwind: "$recipe"
-        }
+    }
+    catch (error) {
 
+        console.log(error);
 
-    ]).toArray();
+        res.status(500).send({
+            message: "Failed to get favorites"
+        });
 
-
-
-    res.send(favorites);
-
+    }
 
 });
 
