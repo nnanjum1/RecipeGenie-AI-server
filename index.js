@@ -20,18 +20,10 @@ const uri = process.env.MONGODB_URI;
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(
-    cors({
-        origin: [
-            "http://localhost:3000",
-            "https://recipe-genie-ai-one.vercel.app",
-        ],
-        credentials: true,
-    })
-);
 
 
-app.use(express.json());
+app.use(cors())
+app.use(express.json())
 
 const client = new MongoClient(uri, {
     serverApi: {
@@ -41,245 +33,248 @@ const client = new MongoClient(uri, {
     }
 });
 
+
+
+
 async function run() {
-    try {
-        await client.connect();
-        await client.db("admin").command({ ping: 1 });
-        console.log("Successfully connected to MongoDB!");
 
-        const db = client.db("recipe_genie");
-        const recipeCollection = db.collection("recipes");
+    await client.connect();
+    await client.db("admin").command({ ping: 1 });
+    console.log("Successfully connected to MongoDB!");
 
-        const chatCollection = db.collection("chat");
-        const reviewCollection = db.collection("reviews");
+    const db = client.db("recipe_genie");
+    const recipeCollection = db.collection("recipes");
+
+    const chatCollection = db.collection("chat");
+    const reviewCollection = db.collection("reviews");
 
 
-        app.post("/recipes", async (req, res) => {
-            try {
-                const recipe = {
-                    ...req.body,
-                    createdAt: new Date(),
-                };
+    app.post("/recipes", async (req, res) => {
+        try {
+            const recipe = {
+                ...req.body,
+                createdAt: new Date(),
+            };
 
-                const result = await recipeCollection.insertOne(recipe);
+            const result = await recipeCollection.insertOne(recipe);
 
-                res.send(result);
-            } catch (error) {
-                res.status(500).send({
-                    message: "Failed to add recipe",
+            res.send(result);
+        } catch (error) {
+            res.status(500).send({
+                message: "Failed to add recipe",
+            });
+        }
+    });
+
+    app.get("/recipes", async (req, res) => {
+
+        try {
+
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 8;
+
+            const skip = (page - 1) * limit;
+
+
+            const recipes = await recipeCollection
+                .find()
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .toArray();
+
+
+            const totalRecipes = await recipeCollection.countDocuments();
+
+
+            res.send({
+                recipes,
+                totalPages: Math.ceil(totalRecipes / limit),
+                currentPage: page
+            });
+
+
+        } catch (error) {
+
+            res.status(500).send({
+                message: "Failed to fetch recipes"
+            });
+
+        }
+
+    });
+
+
+    app.get("/recipes/:id", async (req, res) => {
+
+        try {
+
+            const id = req.params.id;
+
+            console.log("Requested ID:", id);
+
+            const result = await recipeCollection.findOne({
+                _id: new ObjectId(id)
+            });
+
+            console.log("Found Recipe:", result);
+
+
+            if (!result) {
+                return res.status(404).send({
+                    message: "Recipe not found"
                 });
             }
-        });
 
-        app.get("/recipes", async (req, res) => {
-
-            try {
-
-                const page = parseInt(req.query.page) || 1;
-                const limit = parseInt(req.query.limit) || 8;
-
-                const skip = (page - 1) * limit;
+            res.send(result);
 
 
-                const recipes = await recipeCollection
-                    .find()
-                    .sort({ createdAt: -1 })
-                    .skip(skip)
-                    .limit(limit)
-                    .toArray();
+        } catch (error) {
+
+            console.log(error);
+
+            res.status(500).send({
+                message: "Failed to get recipe"
+            });
+
+        }
+
+    });
+
+    app.get("/my-recipes/:email", async (req, res) => {
+
+        try {
+
+            const email = decodeURIComponent(req.params.email);
 
 
-                const totalRecipes = await recipeCollection.countDocuments();
+            const result = await recipeCollection
+                .find({
+                    userEmail: email
+                })
+                .sort({
+                    createdAt: -1
+                })
+                .toArray();
 
 
-                res.send({
-                    recipes,
-                    totalPages: Math.ceil(totalRecipes / limit),
-                    currentPage: page
-                });
+            res.send(result);
 
 
-            } catch (error) {
+        } catch (error) {
 
-                res.status(500).send({
-                    message: "Failed to fetch recipes"
-                });
+            console.log(error); // add this
 
-            }
+            res.status(500).send({
+                message: "Failed to fetch user recipes",
+                error: error.message
+            });
 
-        });
+        }
 
+    });
 
-        app.get("/recipes/:id", async (req, res) => {
+    app.delete("/recipes/:id", async (req, res) => {
+        try {
 
-            try {
+            const id = req.params.id;
 
-                const id = req.params.id;
+            const result = await recipeCollection.deleteOne({
+                _id: new ObjectId(id)
+            });
 
-                console.log("Requested ID:", id);
+            res.send(result);
 
-                const result = await recipeCollection.findOne({
+        } catch (error) {
+
+            res.status(500).send({
+                message: "Failed to delete recipe"
+            });
+
+        }
+    });
+
+    app.patch("/recipes/:id", async (req, res) => {
+        try {
+
+            const id = req.params.id;
+
+            const updatedRecipe = req.body;
+
+            const result = await recipeCollection.updateOne(
+                {
                     _id: new ObjectId(id)
-                });
+                },
+                {
+                    $set: updatedRecipe
+                }
+            );
 
-                console.log("Found Recipe:", result);
+            res.send(result);
+
+        } catch (error) {
+
+            res.status(500).send({
+                message: "Failed to update recipe"
+            });
+
+        }
+    });
 
 
-                if (!result) {
-                    return res.status(404).send({
-                        message: "Recipe not found"
-                    });
+    app.patch("/recipes/like/:id", async (req, res) => {
+
+        try {
+
+            const id = req.params.id;
+            const { change } = req.body;
+
+
+            const result = await recipeCollection.updateOne(
+
+                {
+                    _id: new ObjectId(id)
+                },
+
+                {
+                    $inc: {
+                        likes: change
+                    }
                 }
 
-                res.send(result);
+            );
 
 
-            } catch (error) {
-
-                console.log(error);
-
-                res.status(500).send({
-                    message: "Failed to get recipe"
-                });
-
-            }
-
-        });
-
-        app.get("/my-recipes/:email", async (req, res) => {
-
-            try {
-
-                const email = decodeURIComponent(req.params.email);
+            res.send(result);
 
 
-                const result = await recipeCollection
-                    .find({
-                        userEmail: email
-                    })
-                    .sort({
-                        createdAt: -1
-                    })
-                    .toArray();
+        } catch (error) {
 
+            res.status(500).send({
+                message: "Like update failed"
+            });
 
-                res.send(result);
+        }
 
-
-            } catch (error) {
-
-                console.log(error); // add this
-
-                res.status(500).send({
-                    message: "Failed to fetch user recipes",
-                    error: error.message
-                });
-
-            }
-
-        });
-
-        app.delete("/recipes/:id", async (req, res) => {
-            try {
-
-                const id = req.params.id;
-
-                const result = await recipeCollection.deleteOne({
-                    _id: new ObjectId(id)
-                });
-
-                res.send(result);
-
-            } catch (error) {
-
-                res.status(500).send({
-                    message: "Failed to delete recipe"
-                });
-
-            }
-        });
-
-        app.patch("/recipes/:id", async (req, res) => {
-            try {
-
-                const id = req.params.id;
-
-                const updatedRecipe = req.body;
-
-                const result = await recipeCollection.updateOne(
-                    {
-                        _id: new ObjectId(id)
-                    },
-                    {
-                        $set: updatedRecipe
-                    }
-                );
-
-                res.send(result);
-
-            } catch (error) {
-
-                res.status(500).send({
-                    message: "Failed to update recipe"
-                });
-
-            }
-        });
-
-
-        app.patch("/recipes/like/:id", async (req, res) => {
-
-            try {
-
-                const id = req.params.id;
-                const { change } = req.body;
-
-
-                const result = await recipeCollection.updateOne(
-
-                    {
-                        _id: new ObjectId(id)
-                    },
-
-                    {
-                        $inc: {
-                            likes: change
-                        }
-                    }
-
-                );
-
-
-                res.send(result);
-
-
-            } catch (error) {
-
-                res.status(500).send({
-                    message: "Like update failed"
-                });
-
-            }
-
-        });
+    });
 
 
 
 
 
-        app.post("/generate-recipe", async (req, res) => {
+    app.post("/generate-recipe", async (req, res) => {
 
-            try {
+        try {
 
-                const {
-                    ingredients,
-                    cuisine,
-                    difficulty,
-                    cookingTime,
-                    servings,
-                } = req.body;
+            const {
+                ingredients,
+                cuisine,
+                difficulty,
+                cookingTime,
+                servings,
+            } = req.body;
 
-                const prompt = `
+            const prompt = `
 Generate ONE cooking recipe.
 
 Return ONLY valid JSON.
@@ -315,473 +310,475 @@ Generate a realistic recipe.
 imageQuery should contain only the food name.
 `;
 
-                const response = await ai.chat.completions.create({
-                    model: "llama-3.3-70b-versatile",
+            const response = await ai.chat.completions.create({
+                model: "llama-3.3-70b-versatile",
 
-                    response_format: {
-                        type: "json_object"
-                    },
+                response_format: {
+                    type: "json_object"
+                },
 
-                    messages: [
-                        {
-                            role: "system",
-                            content: "Return only valid JSON. No markdown. No explanations."
-                        },
-                        {
-                            role: "user",
-                            content: prompt,
-                        },
-                    ],
-                });
-
-                const text = response.choices[0].message.content;
-
-                console.log("========== RAW AI RESPONSE ==========");
-                console.log(text);
-                console.log("=====================================");
-
-                const recipe = JSON.parse(text);
-
-                res.send(recipe);
-
-
-
-            }
-            catch (error) {
-
-                console.log(error);
-
-                res.status(500).send({
-                    message: "Failed to generate recipe",
-                    error: error.message,
-                });
-
-            }
-
-        });
-
-        app.get("/generate-recipe", (req, res) => {
-            res.send("Generate Recipe API is working. Use POST.");
-        });
-
-        app.post("/recipe-image", async (req, res) => {
-            try {
-
-                const { query } = req.body;
-
-                const url =
-                    `https://pixabay.com/api/?key=${process.env.PIXABAY_API_KEY}` +
-                    `&q=${encodeURIComponent(query + " food")}` +
-                    `&image_type=photo&category=food&per_page=5`;
-
-
-                const controller = new AbortController();
-
-                const timeout = setTimeout(() => {
-                    controller.abort();
-                }, 10000);
-
-
-                const response = await fetch(url, {
-                    signal: controller.signal,
-                    headers: {
-                        "User-Agent": "RecipeGenie-App"
-                    }
-                });
-
-
-                clearTimeout(timeout);
-
-
-                if (!response.ok) {
-                    throw new Error(
-                        `Pixabay failed ${response.status}`
-                    );
-                }
-
-
-                const data = await response.json();
-
-
-                const image =
-                    data.hits?.[0]?.webformatURL ||
-                    "https://images.unsplash.com/photo-1504674900247-0877df9cc836";
-
-
-                res.send({
-                    image
-                });
-
-
-            }
-            catch (error) {
-
-                console.log("PIXABAY ERROR:", error.message);
-
-
-                res.send({
-                    image:
-                        "https://images.unsplash.com/photo-1504674900247-0877df9cc836"
-                });
-
-            }
-        });
-
-
-        app.get("/chat-history/:email", async (req, res) => {
-
-            try {
-
-
-                const email = decodeURIComponent(
-                    req.params.email
-                );
-
-
-                const chat =
-                    await chatCollection.findOne({
-                        userEmail: email
-                    });
-
-
-
-                res.send(
-                    chat || {
-                        messages: []
-                    }
-                );
-
-
-            }
-            catch (error) {
-
-                console.log(error);
-
-                res.status(500).send({
-
-                    message: "Failed to load chat history"
-
-                });
-
-            }
-
-
-        });
-
-
-
-        app.post("/chat", async (req, res) => {
-
-            try {
-
-
-                const {
-                    userEmail,
-                    message
-                } = req.body;
-
-
-
-                if (!userEmail || !message) {
-
-                    return res.status(400).send({
-                        message: "Email and message required"
-                    });
-
-                }
-
-
-
-                const oldChat =
-                    await chatCollection.findOne({
-                        userEmail
-                    });
-
-
-
-                let history = [];
-
-
-                if (oldChat) {
-
-                    history = oldChat.messages.slice(-30);
-                }
-
-
-
-
-
-                const messages = [
+                messages: [
                     {
                         role: "system",
-                        content:
-                            "You are Recipe Genie AI Assistant. Help users with recipes, cooking tips, ingredient replacements and food questions.",
+                        content: "Return only valid JSON. No markdown. No explanations."
                     },
-                ];
-
-                history.forEach((item) => {
-                    messages.push({
-                        role: item.role,
-                        content: item.content,
-                    });
-                });
-
-                messages.push({
-                    role: "user",
-                    content: message,
-                });
-
-
-
-
-                const response = await ai.chat.completions.create({
-                    model: "llama-3.3-70b-versatile",
-                    messages,
-                });
-
-                const answer = response.choices[0].message.content;
-
-
-
-
-
-
-
-
-
-                await chatCollection.updateOne(
-
                     {
-                        userEmail
+                        role: "user",
+                        content: prompt,
                     },
+                ],
+            });
+
+            const text = response.choices[0].message.content;
+
+            console.log("========== RAW AI RESPONSE ==========");
+            console.log(text);
+            console.log("=====================================");
+
+            const recipe = JSON.parse(text);
+
+            res.send(recipe);
 
 
-                    {
 
-                        $push: {
+        }
+        catch (error) {
 
-                            messages: {
+            console.log(error);
 
-                                $each: [
+            res.status(500).send({
+                message: "Failed to generate recipe",
+                error: error.message,
+            });
 
-                                    {
-                                        role: "user",
-                                        content: message,
-                                        createdAt: new Date()
-                                    },
+        }
 
+    });
 
-                                    {
-                                        role: "assistant",
-                                        content: answer,
-                                        createdAt: new Date()
-                                    }
+    app.get("/generate-recipe", (req, res) => {
+        res.send("Generate Recipe API is working. Use POST.");
+    });
 
+    app.post("/recipe-image", async (req, res) => {
+        try {
 
-                                ]
+            const { query } = req.body;
 
-                            }
-
-                        },
-
-
-                        $set: {
-
-                            updatedAt: new Date()
-
-                        }
+            const url =
+                `https://pixabay.com/api/?key=${process.env.PIXABAY_API_KEY}` +
+                `&q=${encodeURIComponent(query + " food")}` +
+                `&image_type=photo&category=food&per_page=5`;
 
 
-                    },
+            const controller = new AbortController();
+
+            const timeout = setTimeout(() => {
+                controller.abort();
+            }, 10000);
 
 
-                    {
-                        upsert: true
-                    }
+            const response = await fetch(url, {
+                signal: controller.signal,
+                headers: {
+                    "User-Agent": "RecipeGenie-App"
+                }
+            });
 
 
+            clearTimeout(timeout);
+
+
+            if (!response.ok) {
+                throw new Error(
+                    `Pixabay failed ${response.status}`
                 );
-
-
-
-
-                res.send({
-
-                    answer
-
-                });
-
-
-
-            }
-            catch (error) {
-
-                console.log(error);
-
-
-                res.status(500).send({
-
-                    message: "AI chat failed",
-
-                    error: error.message
-
-                });
-
-
             }
 
 
-        });
+            const data = await response.json();
 
 
-
-        app.delete("/chat-history/:email", async (req, res) => {
-
-
-            try {
+            const image =
+                data.hits?.[0]?.webformatURL ||
+                "https://images.unsplash.com/photo-1504674900247-0877df9cc836";
 
 
-                const email = req.params.email;
+            res.send({
+                image
+            });
 
 
+        }
+        catch (error) {
 
-                await chatCollection.deleteOne({
+            console.log("PIXABAY ERROR:", error.message);
 
+
+            res.send({
+                image:
+                    "https://images.unsplash.com/photo-1504674900247-0877df9cc836"
+            });
+
+        }
+    });
+
+
+    app.get("/chat-history/:email", async (req, res) => {
+
+        try {
+
+
+            const email = decodeURIComponent(
+                req.params.email
+            );
+
+
+            const chat =
+                await chatCollection.findOne({
                     userEmail: email
-
                 });
 
 
 
-                res.send({
-
-                    message: "Chat cleared"
-
-                });
-
-
-
-            }
-
-            catch (error) {
+            res.send(
+                chat || {
+                    messages: []
+                }
+            );
 
 
-                res.status(500).send({
+        }
+        catch (error) {
 
-                    message: "Delete failed"
+            console.log(error);
 
-                });
+            res.status(500).send({
+
+                message: "Failed to load chat history"
+
+            });
+
+        }
 
 
-            }
+    });
 
 
-        });
+
+    app.post("/chat", async (req, res) => {
+
+        try {
 
 
-        app.post("/reviews", async (req, res) => {
+            const {
+                userEmail,
+                message
+            } = req.body;
 
-            try {
 
-                const review = {
-                    ...req.body,
-                    createdAt: new Date()
-                };
 
-                const result = await reviewCollection.insertOne(review);
+            if (!userEmail || !message) {
 
-                res.send(result);
-
-            } catch (error) {
-
-                res.status(500).send({
-                    message: "Failed to submit review"
+                return res.status(400).send({
+                    message: "Email and message required"
                 });
 
             }
 
-        });
 
 
-
-        app.get("/reviews", async (req, res) => {
-
-            try {
-
-                const reviews = await reviewCollection
-                    .find()
-                    .sort({
-                        createdAt: -1
-                    })
-                    .limit(6)
-                    .toArray();
-
-
-                res.send(reviews);
-
-
-            } catch (error) {
-
-                res.status(500).send({
-                    message: "Failed to load reviews"
+            const oldChat =
+                await chatCollection.findOne({
+                    userEmail
                 });
 
+
+
+            let history = [];
+
+
+            if (oldChat) {
+
+                history = oldChat.messages.slice(-30);
             }
 
-        });
-
-        app.patch("/recipes/like/:id", async (req, res) => {
-
-            try {
-
-                const { id } = req.params;
-                const { liked } = req.body;
 
 
-                console.log("Recipe ID:", id);
-                console.log("Liked status:", liked);
 
 
-                const result = await recipesCollection.updateOne(
-                    {
-                        _id: new ObjectId(id)
-                    },
-                    {
-                        $inc: {
-                            likes: liked ? -1 : 1
+            const messages = [
+                {
+                    role: "system",
+                    content:
+                        "You are Recipe Genie AI Assistant. Help users with recipes, cooking tips, ingredient replacements and food questions.",
+                },
+            ];
+
+            history.forEach((item) => {
+                messages.push({
+                    role: item.role,
+                    content: item.content,
+                });
+            });
+
+            messages.push({
+                role: "user",
+                content: message,
+            });
+
+
+
+
+            const response = await ai.chat.completions.create({
+                model: "llama-3.3-70b-versatile",
+                messages,
+            });
+
+            const answer = response.choices[0].message.content;
+
+
+
+
+
+
+
+
+
+            await chatCollection.updateOne(
+
+                {
+                    userEmail
+                },
+
+
+                {
+
+                    $push: {
+
+                        messages: {
+
+                            $each: [
+
+                                {
+                                    role: "user",
+                                    content: message,
+                                    createdAt: new Date()
+                                },
+
+
+                                {
+                                    role: "assistant",
+                                    content: answer,
+                                    createdAt: new Date()
+                                }
+
+
+                            ]
+
                         }
+
+                    },
+
+
+                    $set: {
+
+                        updatedAt: new Date()
+
                     }
-                );
 
 
-                console.log(result);
+                },
 
 
-                res.send(result);
+                {
+                    upsert: true
+                }
 
 
-            } catch (error) {
-
-                console.log("LIKE ERROR:", error);
+            );
 
 
-                res.status(500).send({
-                    message: error.message
-                });
-
-            }
-
-        });
 
 
-    } catch (error) {
-        console.error("MongoDB connection error:", error);
-    }
+            res.send({
+
+                answer
+
+            });
+
+
+
+        }
+        catch (error) {
+
+            console.log(error);
+
+
+            res.status(500).send({
+
+                message: "AI chat failed",
+
+                error: error.message
+
+            });
+
+
+        }
+
+
+    });
+
+
+
+    app.delete("/chat-history/:email", async (req, res) => {
+
+
+        try {
+
+
+            const email = req.params.email;
+
+
+
+            await chatCollection.deleteOne({
+
+                userEmail: email
+
+            });
+
+
+
+            res.send({
+
+                message: "Chat cleared"
+
+            });
+
+
+
+        }
+
+        catch (error) {
+
+
+            res.status(500).send({
+
+                message: "Delete failed"
+
+            });
+
+
+        }
+
+
+    });
+
+
+    app.post("/reviews", async (req, res) => {
+
+        try {
+
+            const review = {
+                ...req.body,
+                createdAt: new Date()
+            };
+
+            const result = await reviewCollection.insertOne(review);
+
+            res.send(result);
+
+        } catch (error) {
+
+            res.status(500).send({
+                message: "Failed to submit review"
+            });
+
+        }
+
+    });
+
+
+
+    app.get("/reviews", async (req, res) => {
+
+        try {
+
+            const reviews = await reviewCollection
+                .find()
+                .sort({
+                    createdAt: -1
+                })
+                .limit(6)
+                .toArray();
+
+
+            res.send(reviews);
+
+
+        } catch (error) {
+
+            res.status(500).send({
+                message: "Failed to load reviews"
+            });
+
+        }
+
+    });
+
+    app.patch("/recipes/like/:id", async (req, res) => {
+
+        try {
+
+            const { id } = req.params;
+            const { liked } = req.body;
+
+
+            console.log("Recipe ID:", id);
+            console.log("Liked status:", liked);
+
+
+            const result = await recipesCollection.updateOne(
+                {
+                    _id: new ObjectId(id)
+                },
+                {
+                    $inc: {
+                        likes: liked ? -1 : 1
+                    }
+                }
+            );
+
+
+            console.log(result);
+
+
+            res.send(result);
+
+
+        } catch (error) {
+
+            console.log("LIKE ERROR:", error);
+
+
+            res.status(500).send({
+                message: error.message
+            });
+
+        }
+
+    });
+
+
+
 }
 run().catch(console.dir);
 
 app.get('/', (req, res) => {
     res.send("Server is running fine!");
+});
+
+app.listen(PORT, () => {
+    console.log(`Server is running on ${PORT}`);
 });
 
 module.exports = app;
