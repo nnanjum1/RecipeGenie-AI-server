@@ -42,7 +42,7 @@ const client = new MongoClient(uri, {
         deprecationErrors: true,
     }
 });
-let db, recipeCollection, chatCollection, reviewCollection;
+let db, recipeCollection, chatCollection, reviewCollection, favoriteCollection;;
 // 2. Create a middleware to lazily connect to the DB and reuse the connection
 async function connectDb(req, res, next) {
     try {
@@ -52,10 +52,12 @@ async function connectDb(req, res, next) {
             recipeCollection = db.collection("recipes");
             chatCollection = db.collection("chat");
             reviewCollection = db.collection("reviews");
+            favoriteCollection = db.collection("favorites");
         }
         req.recipeCollection = recipeCollection;
         req.chatCollection = chatCollection;
         req.reviewCollection = reviewCollection;
+        req.favoriteCollection = favoriteCollection;
         next();
     } catch (error) {
         console.error("Database connection error:", error);
@@ -701,52 +703,130 @@ app.get("/reviews", connectDb, async (req, res) => {
 
 });
 
-app.patch("/recipes/like/:id", connectDb, async (req, res) => {
+app.post("/favorites", connectDb, async (req, res) => {
+    const { recipeId, userEmail } = req.body;
+
+    const exists = await favoriteCollection.findOne({
+        recipeId,
+        userEmail,
+    });
+
+    if (exists) {
+        return res.status(400).send({
+            message: "Already saved",
+        });
+    }
+
+    await favoriteCollection.insertOne({
+        recipeId,
+        userEmail,
+        createdAt: new Date(),
+    });
+
+    await recipeCollection.updateOne(
+        { _id: new ObjectId(recipeId) },
+        {
+            $inc: {
+                favorites: 1,
+            },
+        }
+    );
+
+    res.send({
+        success: true,
+    });
+});
+
+app.delete("/favorites/:recipeId", connectDb, async (req, res) => {
+    const { recipeId } = req.params;
+    const { userEmail } = req.query;
+
+    const result = await favoriteCollection.deleteOne({
+        recipeId,
+        userEmail,
+    });
+
+    if (result.deletedCount > 0) {
+        await recipeCollection.updateOne(
+            { _id: new ObjectId(recipeId) },
+            {
+                $inc: {
+                    favorites: -1,
+                },
+            }
+        );
+    }
+
+    res.send({
+        success: true,
+    });
+});
+
+app.get("/favorites/:recipeId/:email", connectDb, async (req, res) => {
 
     try {
 
-        const { id } = req.params;
-        const { liked } = req.body;
+        const { recipeId, email } = req.params;
 
+        const favorite = await favoriteCollection.findOne({
+            recipeId,
+            userEmail: decodeURIComponent(email),
+        });
 
-        console.log("Recipe ID:", id);
-        console.log("Liked status:", liked);
-
-
-        const result = await recipeCollection.updateOne(
-            {
-                _id: new ObjectId(id)
-            },
-            {
-                $inc: {
-                    likes: liked ? -1 : 1
-                }
-            }
-        );
-
-
-        console.log(result);
-
-
-        res.send(result);
-
+        res.send({
+            isFavorite: !!favorite
+        });
 
     } catch (error) {
 
-        console.log("LIKE ERROR:", error);
-
-
         res.status(500).send({
-            message: error.message
+            message: "Failed"
         });
 
     }
 
 });
 
+app.get("/favorites/:email", connectDb, async (req, res) => {
 
+    try {
 
+        const email = decodeURIComponent(req.params.email);
 
+        const favorites = await favoriteCollection.find({
+            userEmail: email
+        }).toArray();
+
+        const ids = favorites.map(item => new ObjectId(item.recipeId));
+
+        const recipes = await recipeCollection.find({
+            _id: { $in: ids }
+        }).toArray();
+
+        res.send(recipes);
+
+    } catch (error) {
+
+        res.status(500).send({
+            message: "Failed"
+        });
+
+    }
+
+});
+
+app.get("/favorites/check", async (req, res) => {
+    const { recipeId, userEmail } = req.query;
+
+    const favorite = await favoriteCollection.findOne({
+        recipeId,
+        userEmail,
+    });
+
+    res.send({
+        isFavorite: !!favorite,
+    });
+});
 
 app.get('/', (req, res) => {
     res.send("Server is running fine!");
