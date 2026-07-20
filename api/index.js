@@ -681,62 +681,95 @@ app.get("/reviews", connectDb, async (req, res) => {
 });
 
 app.post("/favorites", connectDb, async (req, res) => {
-    const { recipeId, userEmail } = req.body;
 
-    const exists = await favoriteCollection.findOne({
-        recipeId,
-        userEmail,
+
+    const favorite = req.body;
+
+
+    const exists = await favoritesCollection.findOne({
+
+        recipeId: favorite.recipeId,
+
+        userEmail: favorite.userEmail
+
     });
+
 
     if (exists) {
-        return res.status(400).send({
-            message: "Already saved",
+
+        return res.send({
+            message: "Already saved"
         });
+
     }
 
-    await favoriteCollection.insertOne({
-        recipeId,
-        userEmail,
-        createdAt: new Date(),
+
+
+    const result = await favoritesCollection.insertOne({
+
+        ...favorite,
+
+        createdAt: new Date()
+
     });
 
-    await recipeCollection.updateOne(
-        { _id: new ObjectId(recipeId) },
-        {
-            $inc: {
-                favorites: 1,
-            },
-        }
-    );
 
-    res.send({
-        success: true,
-    });
+
+    res.send(result);
+
+
 });
 
 app.delete("/favorites/:recipeId", connectDb, async (req, res) => {
-    const { recipeId } = req.params;
-    const { userEmail } = req.query;
 
-    const result = await favoriteCollection.deleteOne({
-        recipeId,
-        userEmail,
-    });
+    try {
 
-    if (result.deletedCount > 0) {
-        await recipeCollection.updateOne(
-            { _id: new ObjectId(recipeId) },
-            {
-                $inc: {
-                    favorites: -1,
+        const recipeId = req.params.recipeId;
+        const email = req.query.userEmail;
+
+
+        // Remove favorite document
+        const deleteResult = await favoritesCollection.deleteOne({
+            recipeId: recipeId,
+            userEmail: email
+        });
+
+
+
+        if (deleteResult.deletedCount > 0) {
+
+
+            // decrease recipe favorite count
+            await recipesCollection.updateOne(
+                {
+                    _id: new ObjectId(recipeId)
                 },
-            }
-        );
+                {
+                    $inc: {
+                        favorites: -1
+                    }
+                }
+            );
+
+
+        }
+
+
+
+        res.send(deleteResult);
+
+
+    }
+    catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+            message: "Failed to remove favorite"
+        });
+
     }
 
-    res.send({
-        success: true,
-    });
 });
 
 app.get("/favorites/:recipeId/:email", connectDb, async (req, res) => {
@@ -764,35 +797,56 @@ app.get("/favorites/:recipeId/:email", connectDb, async (req, res) => {
 
 });
 
+
+
 app.get("/favorites/:email", connectDb, async (req, res) => {
 
-    try {
 
-        const email = decodeURIComponent(req.params.email);
+    const email = req.params.email;
 
-        const favorites = await favoriteCollection.find({
-            userEmail: email
-        }).toArray();
 
-        const ids = favorites.map(item => new ObjectId(item.recipeId));
+    const favorites = await favoritesCollection.aggregate([
 
-        const recipes = await recipeCollection.find({
-            _id: { $in: ids }
-        }).toArray();
+        {
+            $match: {
+                userEmail: email
+            }
+        },
 
-        res.send(recipes);
+        {
+            $addFields: {
+                recipeObjectId: {
+                    $toObjectId: "$recipeId"
+                }
+            }
+        },
 
-    } catch (error) {
 
-        res.status(500).send({
-            message: "Failed"
-        });
+        {
+            $lookup: {
+                from: "recipes",
+                localField: "recipeObjectId",
+                foreignField: "_id",
+                as: "recipe"
+            }
+        },
 
-    }
+
+        {
+            $unwind: "$recipe"
+        }
+
+
+    ]).toArray();
+
+
+
+    res.send(favorites);
+
 
 });
 
-app.get("/favorites/check", async (req, res) => {
+app.get("/favorites/check", connectDb, async (req, res) => {
     const { recipeId, userEmail } = req.query;
 
     const favorite = await favoriteCollection.findOne({
