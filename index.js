@@ -24,7 +24,7 @@ app.use(
     cors({
         origin: [
             "http://localhost:3000",
-            "https://your-project.vercel.app",
+            "https://recipe-genie-ai-one.vercel.app",
         ],
         credentials: true,
     })
