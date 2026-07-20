@@ -262,6 +262,43 @@ Requirements:
 
 Generate a realistic recipe.
 
+Category MUST be exactly ONE value from this list only:
+
+Breakfast,
+Brunch,
+Lunch,
+Dinner,
+Appetizer,
+Soup,
+Salad,
+Main Course,
+Side Dish,
+Snack,
+Dessert,
+Bakery,
+Beverage,
+Smoothie,
+Juice,
+Seafood,
+Chicken,
+Beef,
+Vegetarian,
+Vegan,
+Pasta,
+Pizza,
+Rice,
+Noodles,
+BBQ,
+Street Food,
+Healthy,
+Low Carb,
+High Protein,
+Gluten Free,
+Kids,
+Holiday Special
+
+Do not create any new category.
+
 imageQuery should contain only the food name.
 `;
 
