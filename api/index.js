@@ -682,41 +682,73 @@ app.get("/reviews", connectDb, async (req, res) => {
 
 app.post("/favorites", connectDb, async (req, res) => {
 
+    try {
 
-    const favorite = req.body;
-
-
-    const exists = await favoritesCollection.findOne({
-
-        recipeId: favorite.recipeId,
-
-        userEmail: favorite.userEmail
-
-    });
+        const favorite = req.body;
 
 
-    if (exists) {
+        const exists = await favoriteCollection.findOne({
 
-        return res.send({
-            message: "Already saved"
+            recipeId: favorite.recipeId,
+
+            userEmail: favorite.userEmail
+
+        });
+
+
+        if (exists) {
+
+            return res.send({
+                message: "Already saved"
+            });
+
+        }
+
+
+        const result = await favoriteCollection.insertOne({
+
+            ...favorite,
+
+            createdAt: new Date()
+
+        });
+
+
+
+        // increase favorite count
+        await recipeCollection.updateOne(
+
+            {
+                _id: new ObjectId(favorite.recipeId)
+            },
+
+            {
+                $inc: {
+                    favorites: 1
+                }
+            }
+
+        );
+
+
+        res.send(result);
+
+
+    }
+    catch (error) {
+
+        console.log("Favorite save error:", error);
+
+
+        res.status(500).send({
+
+            message: "Failed to save favorite",
+
+            error: error.message
+
         });
 
     }
-
-
-
-    const result = await favoritesCollection.insertOne({
-
-        ...favorite,
-
-        createdAt: new Date()
-
-    });
-
-
-
-    res.send(result);
-
 
 });
 
@@ -729,7 +761,7 @@ app.delete("/favorites/:recipeId", connectDb, async (req, res) => {
 
 
         // Remove favorite document
-        const deleteResult = await favoritesCollection.deleteOne({
+        const deleteResult = await favoriteCollection.deleteOne({
             recipeId: recipeId,
             userEmail: email
         });
@@ -805,7 +837,7 @@ app.get("/favorites/:email", connectDb, async (req, res) => {
     const email = req.params.email;
 
 
-    const favorites = await favoritesCollection.aggregate([
+    const favorites = await favoriteCollection.aggregate([
 
         {
             $match: {
