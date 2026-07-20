@@ -85,20 +85,50 @@ app.post("/recipes", connectDb, async (req, res) => {
     }
 });
 
+// app.get("/recipes", connectDb, async (req, res) => {
+//     try {
+//         const recipes = await recipeCollection
+//             .find()
+//             .sort({ createdAt: -1 })
+//             .toArray();
+
+//         res.send(recipes);
+//     } catch (error) {
+//         res.status(500).send({
+//             message: "Failed to fetch recipes",
+//         });
+//     }
+// });
+
 app.get("/recipes", connectDb, async (req, res) => {
     try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 8;
+
+        const skip = (page - 1) * limit;
+
+        const totalRecipes = await recipeCollection.countDocuments();
+
         const recipes = await recipeCollection
             .find()
             .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
             .toArray();
 
-        res.send(recipes);
+        res.send({
+            recipes,
+            currentPage: page,
+            totalPages: Math.ceil(totalRecipes / limit),
+            totalRecipes,
+        });
     } catch (error) {
         res.status(500).send({
             message: "Failed to fetch recipes",
         });
     }
 });
+
 
 
 app.get("/recipes/:id", connectDb, async (req, res) => {
