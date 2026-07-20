@@ -730,6 +730,49 @@ imageQuery should contain only the food name.
 
         });
 
+        app.patch("/recipes/like/:id", async (req, res) => {
+
+            try {
+
+                const { id } = req.params;
+                const { liked } = req.body;
+
+
+                console.log("Recipe ID:", id);
+                console.log("Liked status:", liked);
+
+
+                const result = await recipesCollection.updateOne(
+                    {
+                        _id: new ObjectId(id)
+                    },
+                    {
+                        $inc: {
+                            likes: liked ? -1 : 1
+                        }
+                    }
+                );
+
+
+                console.log(result);
+
+
+                res.send(result);
+
+
+            } catch (error) {
+
+                console.log("LIKE ERROR:", error);
+
+
+                res.status(500).send({
+                    message: error.message
+                });
+
+            }
+
+        });
+
 
     } catch (error) {
         console.error("MongoDB connection error:", error);
