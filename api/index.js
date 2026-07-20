@@ -86,41 +86,18 @@ app.post("/recipes", connectDb, async (req, res) => {
 });
 
 app.get("/recipes", connectDb, async (req, res) => {
-
     try {
-
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 8;
-
-        const skip = (page - 1) * limit;
-
-
         const recipes = await recipeCollection
             .find()
             .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
             .toArray();
 
-
-        const totalRecipes = await recipeCollection.countDocuments();
-
-
-        res.send({
-            recipes,
-            totalPages: Math.ceil(totalRecipes / limit),
-            currentPage: page
-        });
-
-
+        res.send(recipes);
     } catch (error) {
-
         res.status(500).send({
-            message: "Failed to fetch recipes"
+            message: "Failed to fetch recipes",
         });
-
     }
-
 });
 
 
